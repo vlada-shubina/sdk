@@ -32,12 +32,6 @@ namespace Microsoft.DotNet.Watcher.Tools
         [InlineData(false)]
         public async Task NewFile(bool usePolling)
         {
-            if (!usePolling && OperatingSystem.IsMacOS())
-            {
-                // Skip on MacOS https://github.com/dotnet/aspnetcore/issues/29141
-                return;
-            }
-
             var dir = _testAssetManager.CreateTestDirectory(identifier: usePolling.ToString()).Path;
 
             using var watcher = FileWatcherFactory.CreateWatcher(dir, usePolling);
