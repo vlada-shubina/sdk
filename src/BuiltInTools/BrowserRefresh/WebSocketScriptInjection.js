@@ -97,8 +97,18 @@ setTimeout(function () {
     styleElement.parentNode.insertBefore(newElement, styleElement.nextSibling);
   }
 
+  const webAssemblyHotReloadSuccessPayload = new ArrayBuffer(1);
+  webAssemblyHotReloadSuccessPayload[0] = 0;
+
   function applyBlazorDeltas(deltas) {
-    deltas.forEach(d => window.Blazor._internal.applyHotReload(d.moduleId, d.metadataDelta, d.ilDelta));
+    try {
+      deltas.forEach(d => window.Blazor._internal.applyHotReload(d.moduleId, d.metadataDelta, d.ilDelta));
+    } catch (error) {
+      console.warn(error);
+      return;
+    }
+
+    connection.send(webAssemblyHotReloadSuccessPayload);
     notifyHotReloadApplied();
   }
 

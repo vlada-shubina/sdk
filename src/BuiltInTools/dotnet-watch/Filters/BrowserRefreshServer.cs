@@ -119,6 +119,29 @@ namespace Microsoft.DotNet.Watcher.Tools
             }
         }
 
+        public async ValueTask<ValueWebSocketReceiveResult> ReceiveAsync(Memory<byte> buffer, CancellationToken cancellationToken)
+        {
+            for (var i = 0; i < _clientSockets.Count; i++)
+            {
+                var clientSocket = _clientSockets[i];
+                if (clientSocket.CloseStatus.HasValue)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    return await clientSocket.ReceiveAsync(buffer, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _reporter.Verbose($"Refresh server error: {ex}");
+                }
+            }
+
+            return default;
+        }
+
         public async ValueTask DisposeAsync()
         {
             for (var i = 0; i < _clientSockets.Count; i++)

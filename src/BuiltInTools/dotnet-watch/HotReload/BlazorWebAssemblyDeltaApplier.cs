@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Net.WebSockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis.ExternalAccess.Watch.Api;
@@ -15,6 +16,7 @@ namespace Microsoft.DotNet.Watcher.Tools
     internal class BlazorWebAssemblyDeltaApplier : IDeltaApplier
     {
         private readonly IReporter _reporter;
+        private readonly byte[] _receiveBuffer = new byte[1];
 
         public BlazorWebAssemblyDeltaApplier(IReporter reporter)
         {
@@ -44,9 +46,28 @@ namespace Microsoft.DotNet.Watcher.Tools
                 }),
             };
 
+            _reporter.Verbose("Sending delta to the WebSocket client.");
             await context.BrowserRefreshServer.SendJsonSerlialized(payload, cancellationToken);
 
-            return true;
+            _receiveBuffer[0] = 1;
+            try
+            {
+                _reporter.Verbose("Waiting for confirmation from WebSocket client");
+                var result = await context.BrowserRefreshServer.ReceiveAsync(_receiveBuffer, cancellationToken)
+                    .AsTask()
+                    .WaitAsync(TimeSpan.FromSeconds(5));
+
+                _reporter.Verbose("Received confirmation from WebSocket client");
+
+                // Get a signal from the client. A non-zero response is considered a failure.
+                return result.Count == 1 && result.MessageType == WebSocketMessageType.Binary && result.EndOfMessage && _receiveBuffer[0] == 0;
+            }
+            catch when (!cancellationToken.IsCancellationRequested)
+            {
+                _reporter.Verbose("Timed out receiving confirmation from WebSocket client.");
+                // We did not hear from the client in time.
+                return false;
+            }
         }
 
         public async ValueTask ReportDiagnosticsAsync(DotNetWatchContext context, IEnumerable<string> diagnostics, CancellationToken cancellationToken)
