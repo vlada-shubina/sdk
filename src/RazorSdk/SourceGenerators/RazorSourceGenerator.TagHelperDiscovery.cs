@@ -27,7 +27,7 @@ namespace Microsoft.NET.Sdk.Razor.SourceGenerators
         private static readonly ConcurrentDictionary<Guid, IReadOnlyList<TagHelperDescriptor>> _tagHelperCache = new();
         private static IReadOnlyList<TagHelperDescriptor> ResolveTagHelperDescriptors(GeneratorExecutionContext GeneratorExecutionContext, RazorSourceGenerationContext razorContext)
         {
-            var tagHelperFeature = new StaticCompilationTagHelperFeature(GeneratorExecutionContext);
+            var tagHelperFeature = new StaticCompilationTagHelperFeature();
 
             var parseOptions = (CSharpParseOptions)GeneratorExecutionContext.ParseOptions;
             var langVersion = parseOptions.LanguageVersion;

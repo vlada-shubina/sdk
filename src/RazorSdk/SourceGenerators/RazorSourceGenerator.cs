@@ -79,8 +79,8 @@ namespace Microsoft.NET.Sdk.Razor.SourceGenerators
                 context.AddSource($"{context.Compilation.AssemblyName}.UnifiedAssembly.Info.g.cs", ProvideApplicationPartFactoryAttributeSourceText);
             }
 
-            RazorGenerateForSourceTexts(_razorContext.CshtmlFiles, context, projectEngine);
-            RazorGenerateForSourceTexts(_razorContext.RazorFiles, context, projectEngine);
+            // RazorGenerateForSourceTexts(_razorContext.CshtmlFiles, context, projectEngine);
+            // RazorGenerateForSourceTexts(_razorContext.RazorFiles, context, projectEngine);
         }
     }
 }
