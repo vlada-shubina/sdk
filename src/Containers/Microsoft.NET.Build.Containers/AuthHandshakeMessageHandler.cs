@@ -140,38 +140,22 @@ internal sealed partial class AuthHandshakeMessageHandler : DelegatingHandler
         string? credP = Environment.GetEnvironmentVariable(ContainerHelpers.HostObjectPass);
 
         // fetch creds for the host
-        DockerCredentials? privateRepoCreds;
+        DockerCredentials? privateRepoCreds = !string.IsNullOrWhiteSpace(credU) && !string.IsNullOrWhiteSpace(credP)
+            ? new DockerCredentials(credU, credP)
+            : await GetLoginCredentials(registry).ConfigureAwait(false);
 
-        if (!string.IsNullOrEmpty(credU) && !string.IsNullOrEmpty(credP))
+        switch (scheme)
         {
-            privateRepoCreds = new DockerCredentials(credU, credP);
-        }
-        else
-        {
-            privateRepoCreds = await GetLoginCredentials(registry).ConfigureAwait(false);
-        }
-
-        if (scheme is "Basic")
-        {
-            var authValue = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.ASCII.GetBytes($"{privateRepoCreds.Username}:{privateRepoCreds.Password}")));
-            return new (authValue, DateTimeOffset.MaxValue);
-        }
-        else if (scheme is "Bearer")
-        {
-            Debug.Assert(bearerAuthInfo is not null);
-
-            var authenticationValueAndDuration = await TryOAuthPostAsync(privateRepoCreds, bearerAuthInfo, cancellationToken).ConfigureAwait(false);
-            if (authenticationValueAndDuration is not null)
-            {
+            case "Basic":
+                var authValue = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.ASCII.GetBytes($"{privateRepoCreds.Username}:{privateRepoCreds.Password}")));
+                return (authValue, DateTimeOffset.MaxValue);
+            case "Bearer":
+                Debug.Assert(bearerAuthInfo is not null);
+                var authenticationValueAndDuration = await TryOAuthPostAsync(privateRepoCreds, bearerAuthInfo, cancellationToken).ConfigureAwait(false)
+                    ?? await TryTokenGetAsync(privateRepoCreds, bearerAuthInfo, cancellationToken).ConfigureAwait(false);
                 return authenticationValueAndDuration;
-            }
-
-            authenticationValueAndDuration = await TryTokenGetAsync(privateRepoCreds, bearerAuthInfo, cancellationToken).ConfigureAwait(false);
-            return authenticationValueAndDuration;
-        }
-        else
-        {
-            return null;
+            default:
+                return null;
         }
     }
 
@@ -181,38 +165,36 @@ internal sealed partial class AuthHandshakeMessageHandler : DelegatingHandler
     private async Task<(AuthenticationHeaderValue, DateTimeOffset)?> TryOAuthPostAsync(DockerCredentials privateRepoCreds, AuthInfo bearerAuthInfo, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        Uri uri = new(bearerAuthInfo.Realm);
-
+        
         _logger.LogTrace("Attempting to authenticate on {uri} using POST.", uri);
-        Dictionary<string, string?> parameters = new()
-        {
-            ["client_id"] = ClientID,
-        };
+        
+        var builder = new UriBuilder(new Uri(bearerAuthInfo.Realm));
+        var queryDict = System.Web.HttpUtility.ParseQueryString($"client_id={ClientID}");
+        
         if (!string.IsNullOrWhiteSpace(privateRepoCreds.IdentityToken))
         {
-            parameters["grant_type"] = "refresh_token";
-            parameters["refresh_token"] = privateRepoCreds.IdentityToken;
+            queryDict["grant_type"] = "refresh_token";
+            queryDict["refresh_token"] = privateRepoCreds.IdentityToken;
         }
         else
         {
-            parameters["grant_type"] = "password";
-            parameters["username"] = privateRepoCreds.Username;
-            parameters["password"] = privateRepoCreds.Password;
+            queryDict["grant_type"] = "password";
+            queryDict["username"] = privateRepoCreds.Username;
+            queryDict["password"] = privateRepoCreds.Password;
         }
-        if (bearerAuthInfo.Service is not null)
+        if (bearerAuthInfo.Service is string svc)
         {
-            parameters["service"] = bearerAuthInfo.Service;
+            queryDict["service"] = svc;
         }
-        if (bearerAuthInfo.Scope is not null)
+        if (bearerAuthInfo.Scope is string s)
         {
-            parameters["scope"] = bearerAuthInfo.Scope;
-        };
-        HttpRequestMessage postMessage = new(HttpMethod.Post, uri)
-        {
-            Content = new FormUrlEncodedContent(parameters)
-        };
+            queryDict["scope"] = s;
+        }
 
-        HttpResponseMessage postResponse = await base.SendAsync(postMessage, cancellationToken).ConfigureAwait(false);
+        builder.Query = queryDict.ToString();
+        var message = new HttpRequestMessage(HttpMethod.Post, builder.ToString());
+
+        HttpResponseMessage postResponse = await base.SendAsync(message, cancellationToken).ConfigureAwait(false);
         if (!postResponse.IsSuccessStatusCode)
         {
             await postResponse.LogHttpResponseAsync(_logger, cancellationToken).ConfigureAwait(false);
@@ -239,6 +221,8 @@ internal sealed partial class AuthHandshakeMessageHandler : DelegatingHandler
     /// </summary>
     private async Task<(AuthenticationHeaderValue, DateTimeOffset)?> TryTokenGetAsync(DockerCredentials privateRepoCreds, AuthInfo bearerAuthInfo, CancellationToken cancellationToken)
     {
+            cancellationToken.ThrowIfCancellationRequested();
+
             // this doesn't seem to be called out in the spec, but actual username/password auth information should be converted into Basic auth here,
             // even though the overall Scheme we're authenticating for is Bearer
             var header = privateRepoCreds.Username == "<token>"
